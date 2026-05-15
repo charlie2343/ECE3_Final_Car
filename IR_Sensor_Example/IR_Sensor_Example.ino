@@ -8,8 +8,35 @@ uint16_t maximum[8] = {1741, 1904, 1859, 1375, 1320, 1859, 1881, 1717};
 int16_t weights[8] = {8, 4, 2, 1, -1, -2, -4, -8};
 int32_t error = 0; 
 
+
+uint16_t sensorValues[8];
+
+const int left_nslp_pin=31;
+const int left_dir_pin=29;
+const int left_pwm_pin=40;
+
+const int right_nslp_pin=11; // nslp ==> awake & ready for PWM
+const int right_dir_pin=30;
+const int right_pwm_pin=39;
+const int LED_RF = 41;
 void setup()
 {
+  pinMode(right_nslp_pin,OUTPUT);
+  pinMode(right_dir_pin,OUTPUT);
+  pinMode(right_pwm_pin,OUTPUT);
+
+  digitalWrite(right_dir_pin,LOW);
+  digitalWrite(right_nslp_pin,HIGH);
+
+  pinMode(left_nslp_pin,OUTPUT);
+  pinMode(left_dir_pin,OUTPUT);
+  pinMode(left_pwm_pin,OUTPUT);
+
+  digitalWrite(left_dir_pin,LOW);
+  digitalWrite(left_nslp_pin,HIGH);
+
+  pinMode(LED_RF, OUTPUT);
+
   ECE3_Init();
   Serial.begin(9600);
   delay(2000);
@@ -51,9 +78,7 @@ void loop()
   delay(1000);
 }
 
-void generate_steering_direction(){ 
 
-}
 float previous_error = 0;
 float error_sum = 0;
 
