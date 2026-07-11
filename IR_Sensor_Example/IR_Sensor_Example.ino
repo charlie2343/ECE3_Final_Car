@@ -1,95 +1,366 @@
+// #include <ECE3.h>
+
+// uint16_t sensorValues[8];
+// int16_t weighted_sensorValues[8];
+
+// uint16_t minimum[8] = {690, 540, 591, 523, 454, 591, 570, 733};
+// uint16_t maximum[8] = {1741, 1904, 1859, 1375, 1320, 1859, 1881, 1717};
+
+// int16_t weights[8] = {8, 4, 2, 1, -1, -2, -4, -8};
+
+// int32_t error = 0;
+
+// const int left_nslp_pin = 31;
+// const int left_dir_pin  = 29;
+// const int left_pwm_pin  = 40;
+
+// const int right_nslp_pin = 11;
+// const int right_dir_pin  = 30;
+// const int right_pwm_pin  = 39;
+
+// const int LED_RF = 41;
+
+// void setup()
+// {
+//   pinMode(right_nslp_pin, OUTPUT);
+//   pinMode(right_dir_pin, OUTPUT);
+//   pinMode(right_pwm_pin, OUTPUT);
+
+//   digitalWrite(right_dir_pin, LOW);
+//   digitalWrite(right_nslp_pin, HIGH);
+
+//   pinMode(left_nslp_pin, OUTPUT);
+//   pinMode(left_dir_pin, OUTPUT);
+//   pinMode(left_pwm_pin, OUTPUT);
+
+//   digitalWrite(left_dir_pin, LOW);
+//   digitalWrite(left_nslp_pin, HIGH);
+
+//   pinMode(LED_RF, OUTPUT);
+
+//   ECE3_Init();
+//   Serial.begin(9600);
+
+//   delay(2000);
+// }
+
+// void loop()
+// {
+//   ECE3_read_IR(sensorValues);
+
+//   error = 0;
+
+//   Serial.println("Sensor\tRaw\tAdjusted\tNormalized\tWeighted");
+
+//   for (unsigned char i = 0; i < 8; i++)
+//   {
+//     int32_t adjusted = sensorValues[i] - minimum[i];
+
+//     int32_t range = maximum[i] - minimum[i];
+
+//     adjusted = constrain(adjusted, 0, range);
+
+//     int32_t normalized = 10000 * adjusted / range;
+
+//     weighted_sensorValues[i] = normalized * weights[i] / 4;
+
+//     error += weighted_sensorValues[i];
+
+//     Serial.print(i);
+//     Serial.print('\t');
+
+//     Serial.print(sensorValues[i]);
+//     Serial.print('\t');
+
+//     Serial.print(adjusted);
+//     Serial.print('\t');
+
+//     Serial.print(normalized);
+//     Serial.print('\t');
+
+//     Serial.println(weighted_sensorValues[i]);
+//   }
+
+//   Serial.print("Error: ");
+//   Serial.println(error);
+
+//   Serial.println("-------------------");
+
+//   delay(500);
+// }
+
+
 #include <ECE3.h>
+
 
 uint16_t sensorValues[8];
 int16_t weighted_sensorValues[8];
+const int MAX_SENSOR_THRESHOLD = 9500;
+int maxReadCount = 0;
+float turnScore = 0;
+unsigned long lastTurnTime = 0;
+
 
 uint16_t minimum[8] = {690, 540, 591, 523, 454, 591, 570, 733};
 uint16_t maximum[8] = {1741, 1904, 1859, 1375, 1320, 1859, 1881, 1717};
-int16_t weights[8] = {8, 4, 2, 1, -1, -2, -4, -8};
-int32_t error = 0; 
+int16_t weights[8] = {15, 14, 12, 8, -8, -12, -14, -15};
+int32_t error = 0;
 
 
-uint16_t sensorValues[8];
-
-const int left_nslp_pin=31;
-const int left_dir_pin=29;
-const int left_pwm_pin=40;
-
-const int right_nslp_pin=11; // nslp ==> awake & ready for PWM
-const int right_dir_pin=30;
-const int right_pwm_pin=39;
+const int left_nslp_pin  = 31;
+const int left_dir_pin   = 29;
+const int left_pwm_pin   = 40;
+int baseSpeed = 220;
+const int right_nslp_pin = 11;
+const int right_dir_pin  = 30;
+const int right_pwm_pin  = 39;
 const int LED_RF = 41;
+float last_P = 0, last_I = 0, last_D = 0, last_output = 0;
+
+
+const int bump0_pin = 25;
+const int bump1_pin = 27;
+const int bump2_pin = 6;
+const int bump3_pin = 28;
+const int bump4_pin = 8;
+const int bump5_pin = 29;
+
+
+// ---- Encoder turn parameters (tune TURN_COUNTS for 90 degrees) ----
+const int TURN_COUNTS = 300;
+const int TURN_SPEED  = 78;
+
+
+bool end_reached  = false;
+bool turn_reached = false;
+
+
+const int bump_pins[6] = {bump0_pin, bump1_pin, bump2_pin,
+                          bump3_pin, bump4_pin, bump5_pin};
+
+
+float Kp = 0.008;
+float Ki = 0.001;
+float Kd = 0.0005;
+
+
+bool bump_prev[6] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+unsigned long bump_last_time[6] = {0, 0, 0, 0, 0, 0};
+const unsigned long BUMP_DEBOUNCE_MS = 200;
+float previous_error = 0;
+float error_sum = 0;
+unsigned long previous_time = 0;
+
+
 void setup()
 {
-  pinMode(right_nslp_pin,OUTPUT);
-  pinMode(right_dir_pin,OUTPUT);
-  pinMode(right_pwm_pin,OUTPUT);
+ for (int i = 0; i < 6; i++) {
+   pinMode(bump_pins[i], INPUT_PULLUP);
+ }
 
-  digitalWrite(right_dir_pin,LOW);
-  digitalWrite(right_nslp_pin,HIGH);
 
-  pinMode(left_nslp_pin,OUTPUT);
-  pinMode(left_dir_pin,OUTPUT);
-  pinMode(left_pwm_pin,OUTPUT);
+ pinMode(right_nslp_pin, OUTPUT);
+ pinMode(right_dir_pin,  OUTPUT);
+ pinMode(right_pwm_pin,  OUTPUT);
+ digitalWrite(right_dir_pin,  LOW);
+ digitalWrite(right_nslp_pin, HIGH);
 
-  digitalWrite(left_dir_pin,LOW);
-  digitalWrite(left_nslp_pin,HIGH);
 
-  pinMode(LED_RF, OUTPUT);
+ pinMode(left_nslp_pin, OUTPUT);
+ pinMode(left_dir_pin,  OUTPUT);
+ pinMode(left_pwm_pin,  OUTPUT);
+ digitalWrite(left_dir_pin,  LOW);
+ digitalWrite(left_nslp_pin, HIGH);
 
-  ECE3_Init();
-  Serial.begin(9600);
-  delay(2000);
+
+ pinMode(LED_RF, OUTPUT);
+
+
+ ECE3_Init();
+ Serial.begin(115200);
+ delay(2000);
 }
+
+
+unsigned long detection_time = 0;
+
 
 void loop()
 {
-  ECE3_read_IR(sensorValues);
-//Serial.println("raw readings");
-  error = 0;
-  for (unsigned char i = 0; i < 8; i++)
-  {
-    // Serial.print(sensorValues[i]);
-    // Serial.print('\t');
-    
-  
-    // weighted_sensorValues[i] =
-    //   (10000*(constrain(sensorValues[i] - minimum[i],0, maximum[i]))/maximum[i]) * weights[i] / 4.0;
-      error += (10000*(constrain(sensorValues[i] - minimum[i],0, maximum[i]))/maximum[i]) * weights[i] / 4.0;
-  }
-  //Serial.println("Weighted Sensor Values:");
-  Serial.println("Error:");
- Serial.println(error);
-// for (unsigned char i = 0; i < 8; i++)
-//   {
+ ECE3_read_IR(sensorValues);
 
-//    //Serial.print(sensorValues[i] - minimum[i]);
-//   //  Serial.print(1000*(constrain(sensorValues[i] - minimum[i],0, maximum[i]))/maximum[i]);
-//   //   Serial.print('\t');
-//   Serial.print(weighted_sensorValues[i]);
-//  Serial.print('\t');
-//   }
-  
- //Serial.println();
 
-  //Serial.print(error);
-  //Serial.print('\t');
-  //Serial.println();
-  delay(1000);
+ if (isPerpendicularLine() && (detection_time == 0 || (millis() - detection_time) > 2000))
+ {
+   maxReadCount++;
+ }
+ else
+ {
+   maxReadCount = 0;
+ }
+
+
+ if (maxReadCount >= 2 && !turn_reached)
+ {
+   turnAtMaxSpeed();         // now encoder-based instead of time-based
+   maxReadCount    = 0;
+   error_sum       = 0;
+   previous_error  = 0;
+   detection_time  = millis();
+   turn_reached    = true;
+   return;
+ }
+ else if (maxReadCount >= 2 && turn_reached)
+ {
+   end_reached = true;
+ }
+
+
+ error = 0;
+ for (unsigned char i = 0; i < 8; i++)
+ {
+   int normalized = 10000 *
+     constrain(sensorValues[i] - minimum[i], 0, maximum[i] - minimum[i])
+     / (maximum[i]);
+   error += normalized * weights[i] / 8.0;
+ }
+
+
+ float output     = PID_algo(Kp, Ki, Kd);
+ int correction   = correction_to_motor_val(output);
+ int leftSpeed    = baseSpeed + correction;
+ int rightSpeed   = baseSpeed - correction;
+
+
+ handle_bumpers();
+
+
+ if (!end_reached) {
+   setMotor(left_pwm_pin,  left_dir_pin,  leftSpeed);
+   setMotor(right_pwm_pin, right_dir_pin, rightSpeed);
+ } else {
+   setMotor(left_pwm_pin,  left_dir_pin,  0);
+   setMotor(right_pwm_pin, right_dir_pin, 0);
+ }
 }
 
 
-float previous_error = 0;
-float error_sum = 0;
+// ---- Encoder-based turn (replaces delay-based turnAtMaxSpeed) ----
+void turnAtMaxSpeed()
+{
+ resetEncoderCount_left();
+ resetEncoderCount_right();
+
+
+ while (true)
+ {
+   int16_t leftAbs  = abs(getEncoderCount_left());
+   int16_t rightAbs = abs(getEncoderCount_right());
+
+
+   Serial.print("L: "); Serial.print(leftAbs);
+   Serial.print("  R: "); Serial.println(rightAbs);
+
+
+   if (leftAbs >= TURN_COUNTS && rightAbs >= TURN_COUNTS)
+     break;
+
+
+   if (leftAbs  < TURN_COUNTS) setMotor(left_pwm_pin,  left_dir_pin,   TURN_SPEED);
+   else                         setMotor(left_pwm_pin,  left_dir_pin,   0);
+
+
+   if (rightAbs < TURN_COUNTS) setMotor(right_pwm_pin, right_dir_pin, -TURN_SPEED);
+   else                         setMotor(right_pwm_pin, right_dir_pin,  0);
+ }
+
+
+ setMotor(left_pwm_pin,  left_dir_pin,  0);
+ setMotor(right_pwm_pin, right_dir_pin, 0);
+}
+
 
 float PID_algo(float Kp, float Ki, float Kd)
 {
-  float derivative = error - previous_error;
-  error_sum += error;
+ unsigned long current_time = millis();
+ float dt = (current_time - previous_time) / 1000.0;
+ if (dt <= 0) dt = 0.001;
 
-  float output = Kp * error + Ki * error_sum + Kd * derivative;
 
-  previous_error = error;
+ float derivative = (error - previous_error) / dt;
+ error_sum += error * dt;
+ error_sum = constrain(error_sum, -10000, 10000);
 
-  return output;
+
+ float P = Kp * error;
+ float I = Ki * error_sum;
+ float D = Kd * derivative;
+ float output = P + I + D;
+
+
+ last_P = P; last_I = I; last_D = D; last_output = output;
+
+
+ previous_error = error;
+ previous_time  = current_time;
+
+
+ return output;
 }
+
+
+void setMotor(int pwm_pin, int dir_pin, int speed)
+{
+ speed = constrain(speed, -255, 255);
+ if (speed >= 0) {
+   digitalWrite(dir_pin, LOW);
+   analogWrite(pwm_pin, speed);
+ } else {
+   digitalWrite(dir_pin, HIGH);
+   analogWrite(pwm_pin, -speed);
+ }
+}
+
+
+int correction_to_motor_val(float pid_output)
+{
+ pid_output = constrain(pid_output, -255, 255);
+ return (int)pid_output;
+}
+
+
+void handle_bumpers()
+{
+ unsigned long now = millis();
+ for (int i = 0; i < 6; i++) {
+   bool state = digitalRead(bump_pins[i]);
+   if (state == LOW && bump_prev[i] == HIGH &&
+       (now - bump_last_time[i]) > BUMP_DEBOUNCE_MS)
+   {
+     bump_last_time[i] = now;
+     switch (i) {
+       case 0: Kp += 0.001; Serial.print(">>> Kp = "); Serial.println(Kp, 4); break;
+       case 2: Ki += 0.001; Serial.print(">>> Ki = "); Serial.println(Ki, 4); break;
+       case 1: Kd += 0.0001; Serial.print(">>> Kd = "); Serial.println(Kd, 4); break;
+       case 3:
+         baseSpeed += 20;
+         if (baseSpeed > 255) baseSpeed = 255;
+         Serial.print(">>> baseSpeed = "); Serial.println(baseSpeed);
+         break;
+     }
+   }
+   bump_prev[i] = state;
+ }
+}
+
+
+bool isPerpendicularLine()
+{
+ for (int i = 0; i < 8; i++)
+ {
+   int normalized = 10000 * constrain(sensorValues[i] - minimum[i], 0, maximum[i]) / maximum[i];
+   if (normalized < MAX_SENSOR_THRESHOLD) return false;
+ }
+ return true;
+}
+

@@ -66,7 +66,7 @@ const int right_nslp_pin = 11;
 const int right_dir_pin  = 30;
 const int right_pwm_pin  = 39;
 
-const float turn_time = 0.25; // seconds
+const float turn_time = 0.75; // seconds
 
 // ---------------- MOTOR HELPER ----------------
 void setMotor(int pwm_pin, int dir_pin, int speed)
@@ -112,8 +112,8 @@ void setup()
 
   while (millis() - startTime < turn_time * 1000)
   {
-    setMotor(left_pwm_pin, left_dir_pin, 210);    
-    setMotor(right_pwm_pin, right_dir_pin, -210); 
+    setMotor(left_pwm_pin, left_dir_pin, 75);    
+    setMotor(right_pwm_pin, right_dir_pin, -75); 
   }
 
   stopMotors();
